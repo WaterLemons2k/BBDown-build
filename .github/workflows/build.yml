@@ -1,0 +1,75 @@
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  date:
+    runs-on: ubuntu-latest
+    outputs:
+      date: ${{ env.DATE }}
+    steps:
+      - name: Get Date
+        run: echo "DATE=$(date +%Y%m%d)" >>$GITHUB_ENV
+
+  build-win:
+    needs: date
+    runs-on: windows-latest
+    steps:
+      - name: Checkout BBDown
+        uses: actions/checkout@v6
+        with:
+          repository: nilaoda/BBDown
+          ref: master
+
+      - name: Publish
+        run: |
+          $DOTNET_RUNTIMES = 'win-x64', 'win-x86', 'win-arm64'
+
+          foreach ($runtime in $DOTNET_RUNTIMES) {
+            dotnet publish BBDown -c Release -r $runtime -o $runtime -p:DebugSymbols=false -p:DebugType=None
+            Compress-Archive -Path $runtime/BBDown.exe -DestinationPath BBDown_${{ needs.date.outputs.date }}_$runtime.zip -Verbose
+          }
+
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: BBDown-${{ needs.date.outputs.date }}
+          files: '*.zip'
+
+  build-unix:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    needs: date
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout BBDown
+        uses: actions/checkout@v6
+        with:
+          repository: nilaoda/BBDown
+          ref: master
+
+      - name: Publish
+        run: |
+          if [ '${{ matrix.os }}' = 'ubuntu-latest' ]; then
+            DOTNET_RUNTIMES='linux-x64 linux-musl-x64'
+          else
+            DOTNET_RUNTIMES='osx-x64 osx-arm64'
+          fi
+
+          for runtime in $DOTNET_RUNTIMES; do
+            dotnet publish BBDown -c Release -r $runtime -o $runtime -p:DebugSymbols=false -p:DebugType=None
+            tar czvf BBDown_${{ needs.date.outputs.date }}_$runtime.tar.gz -C $runtime BBDown
+          done
+
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: BBDown-${{ needs.date.outputs.date }}
+          files: '*.tar.gz'
